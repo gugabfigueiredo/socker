@@ -1,6 +1,7 @@
 package socker
 
 import (
+	"bytes"
 	"encoding/json"
 	"io"
 	"net/http"
@@ -8,9 +9,8 @@ import (
 )
 
 type MockHandler struct {
-	req     *http.Request
-	res     Responder
-	handler http.HandlerFunc
+	req *http.Request
+	res Responder
 }
 
 func (m *MockHandler) ServeHTTP(w http.ResponseWriter, req *http.Request) {
@@ -98,19 +98,35 @@ func (m *MockHandler) validateRequest(incoming *http.Request) bool {
 		return true
 	}
 
-	if m.req.Method != incoming.Method || m.req.URL.String() != incoming.URL.String() {
+	if m.req.URL.Path != incoming.URL.Path {
 		return false
 	}
 
-	// check if necessary headers are present
-	for key, values1 := range m.req.Header {
-		values2 := incoming.Header[key]
+	// check if necessary query parameters are present
+	incomingQuery := incoming.URL.Query()
+	for key, values := range m.req.URL.Query() {
+		incomingValues := incomingQuery[key]
 
-		if len(values1) != len(values2) {
+		if len(values) != len(incomingValues) {
 			return false
 		}
-		for i := range values1 {
-			if values1[i] != values2[i] {
+		for i := range values {
+			if values[i] != incomingValues[i] {
+				return false
+			}
+		}
+
+	}
+
+	// check if necessary headers are present
+	for key, values := range m.req.Header {
+		incomingValues := incoming.Header[key]
+
+		if len(values) != len(incomingValues) {
+			return false
+		}
+		for i := range values {
+			if values[i] != incomingValues[i] {
 				return false
 			}
 		}
@@ -132,6 +148,7 @@ func (m *MockHandler) validateRequest(incoming *http.Request) bool {
 		if err != nil {
 			return false
 		}
+		incoming.Body = io.NopCloser(bytes.NewBuffer(incomingBody))
 		return string(body) != string(incomingBody)
 	}
 }
