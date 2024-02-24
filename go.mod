@@ -1,4 +1,4 @@
-module github.com/dreamdata-io/socker
+module github.com/gugabfigueiredo/socker
 
 go 1.21.1
 
