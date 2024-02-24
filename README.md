@@ -1,4 +1,4 @@
-# Socker - A stupid simple mock server
+# Socker - a stupid simple golang mock server
 
 ## Usage
 
