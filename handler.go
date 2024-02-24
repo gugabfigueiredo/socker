@@ -8,55 +8,53 @@ import (
 )
 
 type MockHandler struct {
-	path string
-	mux  *http.ServeMux
-	req  *http.Request
+	req     *http.Request
+	res     Responder
+	handler http.HandlerFunc
 }
 
-func (m *MockHandler) respond(r Responder) {
-	m.mux.HandleFunc(m.path, func(w http.ResponseWriter, req *http.Request) {
-		if !m.validateRequest(req) {
-			http.Error(w, "Request does not match", http.StatusBadRequest)
+func (m *MockHandler) ServeHTTP(w http.ResponseWriter, req *http.Request) {
+	if !m.validateRequest(req) {
+		http.Error(w, "Request does not match", http.StatusBadRequest)
+		return
+	}
+	switch {
+	case m.res.err != nil:
+		http.Error(w, m.res.err.Message, m.res.err.Code)
+		return
+	case m.res.res != nil:
+		w.Header().Set("Content-Type", m.res.res.contentType)
+		w.WriteHeader(m.res.res.status)
+
+		// Encode the body based on the specified mime-type
+		if m.res.res.contentType == "" {
 			return
 		}
-		switch {
-		case r.err != nil:
-			http.Error(w, r.err.Message, r.err.Code)
-			return
-		case r.res != nil:
-			w.Header().Set("Content-Type", r.res.contentType)
-			w.WriteHeader(r.res.status)
 
-			// Encode the body based on the specified mime-type
-			if r.res.contentType == "" {
-				return
+		switch m.res.res.contentType {
+		case "application/json":
+			if err := json.NewEncoder(w).Encode(m.res.res.body); err != nil {
+				http.Error(w, err.Error(), http.StatusInternalServerError)
 			}
-
-			switch r.res.contentType {
-			case "application/json":
-				if err := json.NewEncoder(w).Encode(r.res.body); err != nil {
-					http.Error(w, err.Error(), http.StatusInternalServerError)
-				}
-			default:
-				// Default to string
-				if _, err := io.WriteString(w, r.res.body.(string)); err != nil {
-					http.Error(w, err.Error(), http.StatusInternalServerError)
-				}
+		default:
+			// Default to string
+			if _, err := io.WriteString(w, m.res.res.body.(string)); err != nil {
+				http.Error(w, err.Error(), http.StatusInternalServerError)
 			}
-			return
-		case r.han != nil:
-			r.han(w, req)
-			return
 		}
-	})
+		return
+	case m.res.han != nil:
+		m.res.han(w, req)
+		return
+	}
 }
 
 func (m *MockHandler) Respond(r Responder) {
-	m.respond(r)
+	m.res = r
 }
 
 func (m *MockHandler) RespondError(code int, message string) {
-	m.respond(Responder{
+	m.Respond(Responder{
 		err: &handlerError{
 			Code:    code,
 			Message: message,
@@ -65,7 +63,7 @@ func (m *MockHandler) RespondError(code int, message string) {
 }
 
 func (m *MockHandler) RespondJSON(status int, body any) {
-	m.respond(Responder{
+	m.Respond(Responder{
 		res: &handlerResponse{
 			contentType: "application/json",
 			status:      status,
@@ -75,7 +73,7 @@ func (m *MockHandler) RespondJSON(status int, body any) {
 }
 
 func (m *MockHandler) RespondStatus(status int) {
-	m.respond(Responder{
+	m.Respond(Responder{
 		res: &handlerResponse{
 			status: status,
 		},
@@ -83,7 +81,7 @@ func (m *MockHandler) RespondStatus(status int) {
 }
 
 func (m *MockHandler) RespondWith(handlerFunc http.HandlerFunc) {
-	m.respond(Responder{
+	m.Respond(Responder{
 		han: handlerFunc,
 	})
 }
@@ -95,18 +93,18 @@ func (m *MockHandler) Timeout(delay time.Duration) {
 	})
 }
 
-func (m *MockHandler) validateRequest(req *http.Request) bool {
+func (m *MockHandler) validateRequest(incoming *http.Request) bool {
 	if m.req == nil {
 		return true
 	}
 
-	if m.req.Method != req.Method || m.req.URL.String() != req.URL.String() {
+	if m.req.Method != incoming.Method || m.req.URL.String() != incoming.URL.String() {
 		return false
 	}
 
 	// check if necessary headers are present
 	for key, values1 := range m.req.Header {
-		values2 := req.Header[key]
+		values2 := incoming.Header[key]
 
 		if len(values1) != len(values2) {
 			return false
@@ -122,18 +120,18 @@ func (m *MockHandler) validateRequest(req *http.Request) bool {
 	switch {
 	case m.req.Body == nil:
 		return true
-	case req.Body == nil:
+	case incoming.Body == nil:
 		return false
 	default:
-		content1, err := io.ReadAll(m.req.Body)
+		body, err := io.ReadAll(m.req.Body)
 		if err != nil {
 			return false
 		}
 
-		content2, err := io.ReadAll(req.Body)
+		incomingBody, err := io.ReadAll(incoming.Body)
 		if err != nil {
 			return false
 		}
-		return string(content1) != string(content2)
+		return string(body) != string(incomingBody)
 	}
 }
