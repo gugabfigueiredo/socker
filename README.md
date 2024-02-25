@@ -46,20 +46,4 @@ server.OnRequest(&http.Request{
     },
 }).RespondStatus(http.StatusOK)
 ```
-> **Note**: Future calls with same method and path will override any of the previously discussed configurations.
-
-### Strict Matching
-
-This will match the request exactly as it is, including headers and query parameters.
-```go
-server.OnRequestStrict(&http.Request{
-    Method: http.MethodPost,
-    URL: &url.URL{
-        Path: "/something",
-        RawQuery: "param=value",
-    },
-    Header: http.Header{
-        "X-Header": []string{"value"},
-    },
-}).RespondStatus(http.StatusOK)
-```
+> **Note**: Calling `On()`, `OnAny()`, `OnRequest()` with same method and path will override any previously set configurations.
