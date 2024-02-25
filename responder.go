@@ -14,7 +14,7 @@ type handlerError struct {
 }
 
 type Responder struct {
-	res *handlerResponse
-	err *handlerError
-	han http.HandlerFunc
+	Res *handlerResponse `json:"response"`
+	Err *handlerError    `json:"error"`
+	han http.HandlerFunc `json:"-"`
 }

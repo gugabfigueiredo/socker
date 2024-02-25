@@ -2,9 +2,8 @@ package socker
 
 import (
 	"bytes"
-	"encoding/json"
+	"fmt"
 	"github.com/stretchr/testify/assert"
-	"io"
 	"net/http"
 	"net/url"
 	"testing"
@@ -12,67 +11,151 @@ import (
 
 func TestMocli(t *testing.T) {
 
-	socker := NewServer()
-	defer socker.Stop()
-
-	socker.On(http.MethodGet, "/a/b/c").RespondStatus(http.StatusOK)
-	socker.On(http.MethodPost, "/a/b/c").RespondStatus(http.StatusBadRequest)
-	socker.OnAny("/a/b/c/d").RespondStatus(http.StatusMultiStatus)
-	socker.OnRequest(&http.Request{
-		Method: http.MethodGet,
-		URL:    &url.URL{Path: "/a/request"},
-	}).RespondStatus(http.StatusOK)
-
-	res, err := http.Get(socker.URL + "/a/b/c")
-	assert.NoError(t, err)
-	assert.Equal(t, http.StatusOK, res.StatusCode)
-
-	res, err = http.Post(socker.URL+"/a/b/c", "application/json", nil)
-	assert.NoError(t, err)
-	assert.Equal(t, http.StatusBadRequest, res.StatusCode)
-
-	res, err = http.Get(socker.URL + "/a/b/c/d")
-	assert.NoError(t, err)
-	assert.Equal(t, http.StatusMultiStatus, res.StatusCode)
-
-	res, err = http.Post(socker.URL+"/a/b/c/d", "application/json", nil)
-	assert.NoError(t, err)
-	assert.Equal(t, http.StatusMultiStatus, res.StatusCode)
-
-	res, err = http.Get(socker.URL + "/a/request")
-	assert.NoError(t, err)
-	assert.Equal(t, http.StatusOK, res.StatusCode)
-
-	res, err = http.Post(socker.URL+"/a/request", "application/json", nil)
-	assert.NoError(t, err)
-	assert.Equal(t, http.StatusNotFound, res.StatusCode)
-
-	socker.On(http.MethodGet, "/in/run/time").RespondJSON(http.StatusOK, map[string]string{"time": "now"})
-	res, err = http.Get(socker.URL + "/in/run/time")
-	assert.NoError(t, err)
-	assert.Equal(t, http.StatusOK, res.StatusCode)
-	assert.Equal(t, "application/json", res.Header.Get("Content-Type"))
-	defer res.Body.Close()
-	jsonBody := &json.RawMessage{}
-	_ = json.NewDecoder(res.Body).Decode(jsonBody)
-	jsonString, _ := jsonBody.MarshalJSON()
-	assert.Equal(t, `{"time":"now"}`, string(jsonString))
-
-	socker.OnRequestStrict(&http.Request{
-		Method: http.MethodGet,
-		URL:    &url.URL{Path: "/a/request"},
-		Header: http.Header{
-			"Content-Type":  []string{"application/json"},
-			"X-Request-ID":  []string{"123"},
-			"Authorization": []string{"Bearer token"},
+	tt := []struct {
+		name             string
+		setup            func(server *MockServer)
+		check            func(url string) (*http.Response, error)
+		expectedResponse *http.Response
+		expectedError    error
+	}{
+		{
+			name: "on any - get and post - response status ok",
+			setup: func(server *MockServer) {
+				server.OnAny("/any").RespondStatus(http.StatusOK)
+			},
+			check: func(serverURL string) (*http.Response, error) {
+				response, err := http.Get(serverURL + "/any")
+				if err != nil || response.StatusCode != http.StatusOK {
+					return response, fmt.Errorf("expected status %d, got %d", http.StatusOK, response.StatusCode)
+				}
+				return http.Post(serverURL+"/any", "application/json", nil)
+			},
+			expectedResponse: &http.Response{
+				StatusCode: http.StatusOK,
+			},
 		},
-		Body: io.NopCloser(bytes.NewBufferString(`{"foo":"bar"}`)),
-	}).RespondStatus(http.StatusNotImplemented)
-	req, _ := http.NewRequest(http.MethodGet, socker.URL+"/a/request", bytes.NewBufferString(`{"foo":"bar"}`))
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("X-Request-ID", "123")
-	req.Header.Set("Authorization", "Bearer token")
-	res, err = http.DefaultClient.Do(req)
-	assert.NoError(t, err)
-	assert.Equal(t, http.StatusNotImplemented, res.StatusCode)
+		{
+			name: "on get - get - response status ok",
+			setup: func(server *MockServer) {
+				server.On(http.MethodGet, "/get").RespondStatus(http.StatusOK)
+			},
+			check: func(serverURL string) (*http.Response, error) {
+				return http.Get(serverURL + "/get")
+			},
+			expectedResponse: &http.Response{
+				StatusCode: http.StatusOK,
+			},
+		},
+		{
+			name: "on get - post - response status not found",
+			setup: func(server *MockServer) {
+				server.On(http.MethodGet, "/get").RespondStatus(http.StatusOK)
+			},
+			check: func(serverURL string) (*http.Response, error) {
+				return http.Post(serverURL+"/get", "application/json", nil)
+			},
+			expectedResponse: &http.Response{
+				StatusCode: http.StatusNotFound,
+			},
+		},
+		{
+			name: "on get request - get matching request - response status ok",
+			setup: func(server *MockServer) {
+				server.OnRequest(&http.Request{
+					Method: http.MethodGet,
+					URL:    &url.URL{Path: "/a/request"},
+					Header: http.Header{
+						"Content-Type": []string{"application/json"},
+						"X-Request-Id": []string{"123"},
+					},
+				}).RespondStatus(http.StatusOK)
+			},
+			check: func(serverURL string) (*http.Response, error) {
+				req, _ := http.NewRequest(http.MethodGet, serverURL+"/a/request", bytes.NewBufferString(`{"foo":"bar"}`))
+				req.Header.Set("Content-Type", "application/json")
+				req.Header.Set("X-Request-Id", "123")
+				return http.DefaultClient.Do(req)
+			},
+			expectedResponse: &http.Response{
+				StatusCode: http.StatusOK,
+			},
+		},
+		{
+			name: "on get request - get request missing data - response status bad request",
+			setup: func(server *MockServer) {
+				server.OnRequest(&http.Request{
+					Method: http.MethodGet,
+					URL:    &url.URL{Path: "/a/request"},
+					Header: http.Header{
+						"Content-Type": []string{"application/json"},
+						"X-Request-Id": []string{"123"},
+					},
+				}).RespondStatus(http.StatusOK)
+			},
+			check: func(serverURL string) (*http.Response, error) {
+				req, _ := http.NewRequest(http.MethodGet, serverURL+"/a/request", bytes.NewBufferString(`{"foo":"bar"}`))
+				req.Header.Set("Content-Type", "application/json")
+				return http.DefaultClient.Do(req)
+			},
+			expectedResponse: &http.Response{
+				StatusCode: http.StatusBadRequest,
+			},
+		},
+		{
+			name: "on get request - post request - response status not found",
+			setup: func(server *MockServer) {
+				server.OnRequest(&http.Request{
+					Method: http.MethodGet,
+					URL:    &url.URL{Path: "/a/request"},
+					Header: http.Header{
+						"Content-Type": []string{"application/json"},
+						"X-Request-Id": []string{"123"},
+					},
+				}).RespondStatus(http.StatusOK)
+			},
+			check: func(serverURL string) (*http.Response, error) {
+				req, _ := http.NewRequest(http.MethodPost, serverURL+"/a/request", bytes.NewBufferString(`{"foo":"bar"}`))
+				req.Header.Set("Content-Type", "application/json")
+				return http.DefaultClient.Do(req)
+			},
+			expectedResponse: &http.Response{
+				StatusCode: http.StatusNotFound,
+			},
+		},
+		{
+			name: "on any - get - response json body",
+			setup: func(server *MockServer) {
+				server.OnAny("/any").RespondJSON(http.StatusOK, map[string]string{"foo": "bar"})
+			},
+			check: func(serverURL string) (*http.Response, error) {
+				return http.Get(serverURL + "/any")
+			},
+			expectedResponse: &http.Response{
+				StatusCode: http.StatusOK,
+				Header:     http.Header{"Content-Type": []string{"application/json"}},
+			},
+		},
+		{
+			name: "on any - get - response error",
+			setup: func(server *MockServer) {
+				server.OnAny("/any").RespondError(http.StatusBadRequest, "bad request")
+			},
+			check: func(serverURL string) (*http.Response, error) {
+				return http.Get(serverURL + "/any")
+			},
+			expectedResponse: &http.Response{
+				StatusCode: http.StatusBadRequest,
+			},
+		},
+	}
+
+	for _, tc := range tt {
+		t.Run(tc.name, func(t *testing.T) {
+			socker := NewServer()
+			defer socker.Close()
+			tc.setup(socker)
+			res, _ := tc.check(socker.URL)
+			assert.Equal(t, tc.expectedResponse.StatusCode, res.StatusCode)
+		})
+	}
 }

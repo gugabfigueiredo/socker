@@ -1,16 +1,13 @@
 package socker
 
 import (
-	"bytes"
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
 	"fmt"
-	"io"
 	"net/http"
 	"net/http/httptest"
-	"net/url"
+	"os"
 	"sort"
+	"strings"
 )
 
 type MockServer struct {
@@ -48,29 +45,12 @@ func (m *MockServer) OnRequest(req *http.Request) *MockHandler {
 	return h
 }
 
-// OnRequestStrict returns a handler strictly for the given request.
-// This handler will only ever handle this exact same request including, including body.
-// Other requests to the same endpoint are passed on and can be handled by any other matching handler.
-func (m *MockServer) OnRequestStrict(req *http.Request) *MockHandler {
-	h := m.on(hashRequest(req))
-	h.req = req
-	return h
-}
-
 func (m *MockServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	if handler, ok := m.handlers[hashRequest(r)]; ok {
-		handler.ServeHTTP(w, r)
-		return
-	}
-
-	if handler, ok := m.handlers[r.Method+" "+r.URL.Path]; ok {
-		handler.ServeHTTP(w, r)
-		return
-	}
-
-	if handler, ok := m.handlers[r.URL.Path]; ok {
-		handler.ServeHTTP(w, r)
-		return
+	for _, pattern := range generalizePath(r.Method + " " + r.URL.Path) {
+		if handler, ok := m.handlers[pattern]; ok {
+			handler.ServeHTTP(w, r)
+			return
+		}
 	}
 
 	http.NotFound(w, r)
@@ -80,46 +60,65 @@ func (m *MockServer) Stop() {
 	m.Server.Close()
 }
 
-func hashRequest(req *http.Request) string {
-	// Read the request body and restore it
-	body, err := io.ReadAll(req.Body)
-	if err != nil {
-		panic(fmt.Errorf("failed to read mock request body: %s", err))
-	}
-	req.Body = io.NopCloser(bytes.NewBuffer(body))
-
-	// Extract relevant information from the request
-	reqInfo := struct {
-		Method string
-		Path   string
-		Query  url.Values
-		Body   []byte
-	}{
-		Method: req.Method,
-		Path:   req.URL.Path,
-		Query:  req.URL.Query(),
-		Body:   body,
-	}
-
-	// Sort headers for consistent hashing
-	sortValuesMap(reqInfo.Query)
-
-	// Convert request info to JSON
-	reqJSON, err := json.Marshal(reqInfo)
-	if err != nil {
-		panic(fmt.Errorf("failed to marshal mock request info: %s", err))
-	}
-
-	// Hash the JSON-encoded request info
-	hash := sha256.Sum256(reqJSON)
-	return hex.EncodeToString(hash[:])
+type onSetting struct {
+	On      string    `json:"on"`
+	Path    string    `json:"path"`
+	Request Requester `json:"request"`
+	Handler Responder `json:"handler"`
 }
 
-func sortValuesMap(m map[string][]string) {
-	for key := range m {
-		sorted := make([]string, len(m[key]))
-		copy(sorted, m[key])
-		sort.Strings(sorted)
-		m[key] = sorted
+func (m *MockServer) LoadFromFile(path string) error {
+	// Open the JSON file
+	file, err := os.Open(path)
+	if err != nil {
+		return err
 	}
+	defer file.Close()
+
+	// Decode JSON from the file
+	var data []onSetting
+	err = json.NewDecoder(file).Decode(&data)
+	if err != nil {
+		return err
+	}
+
+	for _, setting := range data {
+		switch setting.On {
+		case "any", "ANY":
+			m.OnAny(setting.Path).Respond(setting.Handler)
+		case http.MethodGet, http.MethodPost, http.MethodPut, http.MethodDelete, http.MethodPatch, http.MethodOptions, http.MethodHead, http.MethodConnect, http.MethodTrace:
+			m.On(setting.On, setting.Path).Respond(setting.Handler)
+		case "request", "REQUEST":
+			req, err := setting.Request.ToRequest(m)
+			if err != nil {
+				return err
+			}
+			m.OnRequest(req).Respond(setting.Handler)
+		default:
+			return fmt.Errorf("unsupported method: %s", setting.On)
+		}
+	}
+
+	return nil
+}
+
+func generalizePath(path string) []string {
+	components := strings.Split(path, "/")
+	patterns := make([]string, len(components))
+
+	for i := range components {
+		pattern := strings.Join(components[:i+1], "/")
+		if i < len(components)-1 {
+			pattern += "/*"
+		}
+		patterns[i] = pattern
+	}
+
+	sort.Sort(sort.Reverse(sort.StringSlice(patterns)))
+
+	for i := 0; i < len(components); i++ {
+		patterns = append(patterns, strings.TrimPrefix(patterns[i], components[0]))
+	}
+
+	return patterns
 }

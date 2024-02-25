@@ -19,27 +19,23 @@ func (m *MockHandler) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 		return
 	}
 	switch {
-	case m.res.err != nil:
-		http.Error(w, m.res.err.Message, m.res.err.Code)
+	case m.res.Err != nil:
+		http.Error(w, m.res.Err.Message, m.res.Err.Code)
 		return
-	case m.res.res != nil:
-		w.Header().Set("Content-Type", m.res.res.contentType)
-		w.WriteHeader(m.res.res.status)
+	case m.res.Res != nil:
+		w.WriteHeader(m.res.Res.status)
 
-		// Encode the body based on the specified mime-type
-		if m.res.res.contentType == "" {
-			return
-		}
-
-		switch m.res.res.contentType {
-		case "application/json":
-			if err := json.NewEncoder(w).Encode(m.res.res.body); err != nil {
-				http.Error(w, err.Error(), http.StatusInternalServerError)
-			}
-		default:
-			// Default to string
-			if _, err := io.WriteString(w, m.res.res.body.(string)); err != nil {
-				http.Error(w, err.Error(), http.StatusInternalServerError)
+		if m.res.Res.contentType != "" {
+			w.Header().Set("Content-Type", m.res.Res.contentType)
+			switch m.res.Res.contentType {
+			case "application/json":
+				if err := json.NewEncoder(w).Encode(m.res.Res.body); err != nil {
+					http.Error(w, err.Error(), http.StatusInternalServerError)
+				}
+			default:
+				if _, err := w.Write(m.res.Res.body.([]byte)); err != nil {
+					http.Error(w, err.Error(), http.StatusInternalServerError)
+				}
 			}
 		}
 		return
@@ -55,7 +51,7 @@ func (m *MockHandler) Respond(r Responder) {
 
 func (m *MockHandler) RespondError(code int, message string) {
 	m.Respond(Responder{
-		err: &handlerError{
+		Err: &handlerError{
 			Code:    code,
 			Message: message,
 		},
@@ -64,7 +60,7 @@ func (m *MockHandler) RespondError(code int, message string) {
 
 func (m *MockHandler) RespondJSON(status int, body any) {
 	m.Respond(Responder{
-		res: &handlerResponse{
+		Res: &handlerResponse{
 			contentType: "application/json",
 			status:      status,
 			body:        body,
@@ -74,7 +70,7 @@ func (m *MockHandler) RespondJSON(status int, body any) {
 
 func (m *MockHandler) RespondStatus(status int) {
 	m.Respond(Responder{
-		res: &handlerResponse{
+		Res: &handlerResponse{
 			status: status,
 		},
 	})
