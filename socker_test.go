@@ -2,14 +2,16 @@ package socker
 
 import (
 	"bytes"
+	"context"
 	"fmt"
 	"github.com/stretchr/testify/assert"
 	"net/http"
 	"net/url"
 	"testing"
+	"time"
 )
 
-func TestMocli(t *testing.T) {
+func TestSocker(t *testing.T) {
 
 	tt := []struct {
 		name             string
@@ -147,6 +149,24 @@ func TestMocli(t *testing.T) {
 				StatusCode: http.StatusBadRequest,
 			},
 		},
+		{
+			name: "on any - get - timeout",
+			setup: func(server *MockServer) {
+				server.OnAny("/any").Timeout(200 * time.Millisecond)
+			},
+			check: func(serverURL string) (*http.Response, error) {
+				ctx, cancel := context.WithTimeout(context.Background(), 1*time.Millisecond)
+				defer cancel()
+				req, _ := http.NewRequestWithContext(
+					ctx,
+					http.MethodGet,
+					serverURL+"/any",
+					nil,
+				)
+				return http.DefaultClient.Do(req)
+			},
+			expectedError: context.DeadlineExceeded,
+		},
 	}
 
 	for _, tc := range tt {
@@ -154,8 +174,15 @@ func TestMocli(t *testing.T) {
 			socker := NewServer()
 			defer socker.Close()
 			tc.setup(socker)
-			res, _ := tc.check(socker.URL)
-			assert.Equal(t, tc.expectedResponse.StatusCode, res.StatusCode)
+			res, err := tc.check(socker.URL)
+			if tc.expectedError != nil {
+				assert.ErrorIs(t, err, tc.expectedError)
+			} else {
+				assert.NoError(t, err)
+			}
+			if tc.expectedResponse != nil {
+				assert.Equal(t, tc.expectedResponse.StatusCode, res.StatusCode)
+			}
 		})
 	}
 }

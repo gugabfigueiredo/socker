@@ -2,19 +2,20 @@ package socker
 
 import "net/http"
 
-type handlerResponse struct {
-	contentType string
-	status      int
-	body        any
+type HandlerResponse struct {
+	ContentType string      `json:"content_type"`
+	Status      int         `json:"status"`
+	Header      http.Header `json:"header"`
+	Body        any         `json:"body"`
 }
 
-type handlerError struct {
-	Message string
-	Code    int
+type HandlerError struct {
+	Message string `json:"message"`
+	Status  int    `json:"status"`
 }
 
 type Responder struct {
-	Res *handlerResponse `json:"response"`
-	Err *handlerError    `json:"error"`
-	han http.HandlerFunc `json:"-"`
+	Res  *HandlerResponse `json:"response"`
+	Err  *HandlerError    `json:"error"`
+	Func http.HandlerFunc
 }
