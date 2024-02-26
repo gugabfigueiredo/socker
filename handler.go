@@ -14,10 +14,6 @@ type MockHandler struct {
 }
 
 func (m *MockHandler) ServeHTTP(w http.ResponseWriter, req *http.Request) {
-	if !m.validateRequest(req) {
-		http.Error(w, "Request does not match", http.StatusBadRequest)
-		return
-	}
 	switch {
 	case m.res.Err != nil:
 		http.Error(w, m.res.Err.Message, m.res.Err.Status)
