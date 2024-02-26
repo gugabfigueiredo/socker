@@ -101,10 +101,6 @@ func (m *MockHandler) validateRequest(incoming *http.Request) bool {
 		return true
 	}
 
-	if m.req.URL.Path != incoming.URL.Path {
-		return false
-	}
-
 	// check if necessary query parameters are present
 	incomingQuery := incoming.URL.Query()
 	for key, values := range m.req.URL.Query() {

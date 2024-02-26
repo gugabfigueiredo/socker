@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"path"
 	"sort"
 	"strings"
 )
@@ -29,25 +30,55 @@ func (m *MockServer) on(key string) *MockHandler {
 	return m.handlers[key]
 }
 
-func (m *MockServer) On(method, path string) *MockHandler {
-	return m.on(method + " " + path)
+func makeHandlerKey(parts ...string) string {
+	return strings.TrimSpace(path.Join(parts...))
 }
 
-func (m *MockServer) OnAny(path string) *MockHandler {
-	return m.on(path)
+func makeHandlerKeys(method, path string) []string {
+	key := makeHandlerKey(method, path)
+	parts := strings.Split(key, "/")
+	keys := make([]string, len(parts))
+
+	for i := range parts {
+		pattern := strings.Join(parts[:i+1], "/")
+		if i < len(parts)-1 {
+			pattern += "/*"
+		}
+		keys[i] = pattern
+	}
+
+	for _, k := range keys[:len(parts)] {
+		keys = append(keys, "REQUEST/"+k)
+	}
+
+	sort.Sort(sort.Reverse(sort.StringSlice(keys)))
+
+	for i := 0; i < len(parts); i++ {
+		keys = append(keys, strings.TrimPrefix(keys[i], "REQUEST/"+parts[0]))
+	}
+
+	return keys
+}
+
+func (m *MockServer) On(path string) *MockHandler {
+	return m.on(makeHandlerKey(path))
+}
+
+func (m *MockServer) OnMethod(method, path string) *MockHandler {
+	return m.on(makeHandlerKey(method, path))
 }
 
 // OnRequest returns a validating handler for the given request method and path.
 // If the incoming request does not match the given request, it returns a 400 Bad Request.
 func (m *MockServer) OnRequest(req *http.Request) *MockHandler {
-	h := m.on(req.Method + " " + req.URL.Path)
+	h := m.on(makeHandlerKey("REQUEST", req.Method, req.URL.Path))
 	h.req = req
 	return h
 }
 
 func (m *MockServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	for _, pattern := range generalizePath(r.Method + " " + r.URL.Path) {
-		if handler, ok := m.handlers[pattern]; ok {
+	for _, key := range makeHandlerKeys(r.Method, r.URL.Path) {
+		if handler, ok := m.handlers[key]; ok && handler.validateRequest(r) {
 			handler.ServeHTTP(w, r)
 			return
 		}
@@ -85,9 +116,9 @@ func (m *MockServer) LoadFromFile(path string) error {
 	for _, setting := range data {
 		switch setting.On {
 		case "any", "ANY":
-			m.OnAny(setting.Path).Respond(setting.Handler)
+			m.On(setting.Path).Respond(setting.Handler)
 		case http.MethodGet, http.MethodPost, http.MethodPut, http.MethodDelete, http.MethodPatch, http.MethodOptions, http.MethodHead, http.MethodConnect, http.MethodTrace:
-			m.On(setting.On, setting.Path).Respond(setting.Handler)
+			m.OnMethod(setting.On, setting.Path).Respond(setting.Handler)
 		case "request", "REQUEST":
 			req, err := setting.Request.ToRequest(m)
 			if err != nil {
@@ -100,25 +131,4 @@ func (m *MockServer) LoadFromFile(path string) error {
 	}
 
 	return nil
-}
-
-func generalizePath(path string) []string {
-	components := strings.Split(path, "/")
-	patterns := make([]string, len(components))
-
-	for i := range components {
-		pattern := strings.Join(components[:i+1], "/")
-		if i < len(components)-1 {
-			pattern += "/*"
-		}
-		patterns[i] = pattern
-	}
-
-	sort.Sort(sort.Reverse(sort.StringSlice(patterns)))
-
-	for i := 0; i < len(components); i++ {
-		patterns = append(patterns, strings.TrimPrefix(patterns[i], components[0]))
-	}
-
-	return patterns
 }

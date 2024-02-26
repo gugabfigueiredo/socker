@@ -23,7 +23,7 @@ func TestSocker(t *testing.T) {
 		{
 			name: "on any - get and post - response status ok",
 			setup: func(server *MockServer) {
-				server.OnAny("/any").RespondStatus(http.StatusOK)
+				server.On("/any").RespondStatus(http.StatusOK)
 			},
 			check: func(serverURL string) (*http.Response, error) {
 				response, err := http.Get(serverURL + "/any")
@@ -39,7 +39,7 @@ func TestSocker(t *testing.T) {
 		{
 			name: "on get - get - response status ok",
 			setup: func(server *MockServer) {
-				server.On(http.MethodGet, "/get").RespondStatus(http.StatusOK)
+				server.OnMethod(http.MethodGet, "/get").RespondStatus(http.StatusOK)
 			},
 			check: func(serverURL string) (*http.Response, error) {
 				return http.Get(serverURL + "/get")
@@ -51,7 +51,7 @@ func TestSocker(t *testing.T) {
 		{
 			name: "on get - post - response status not found",
 			setup: func(server *MockServer) {
-				server.On(http.MethodGet, "/get").RespondStatus(http.StatusOK)
+				server.OnMethod(http.MethodGet, "/get").RespondStatus(http.StatusOK)
 			},
 			check: func(serverURL string) (*http.Response, error) {
 				return http.Post(serverURL+"/get", "application/json", nil)
@@ -100,7 +100,7 @@ func TestSocker(t *testing.T) {
 				return http.DefaultClient.Do(req)
 			},
 			expectedResponse: &http.Response{
-				StatusCode: http.StatusBadRequest,
+				StatusCode: http.StatusNotFound,
 			},
 		},
 		{
@@ -127,7 +127,7 @@ func TestSocker(t *testing.T) {
 		{
 			name: "on any - get - response json body",
 			setup: func(server *MockServer) {
-				server.OnAny("/any").RespondJSON(http.StatusOK, map[string]string{"foo": "bar"})
+				server.On("/any").RespondJSON(http.StatusOK, map[string]string{"foo": "bar"})
 			},
 			check: func(serverURL string) (*http.Response, error) {
 				return http.Get(serverURL + "/any")
@@ -140,7 +140,7 @@ func TestSocker(t *testing.T) {
 		{
 			name: "on any - get - response error",
 			setup: func(server *MockServer) {
-				server.OnAny("/any").RespondError(http.StatusBadRequest, "bad request")
+				server.On("/any").RespondError(http.StatusBadRequest, "bad request")
 			},
 			check: func(serverURL string) (*http.Response, error) {
 				return http.Get(serverURL + "/any")
@@ -152,7 +152,7 @@ func TestSocker(t *testing.T) {
 		{
 			name: "on any - get - timeout",
 			setup: func(server *MockServer) {
-				server.OnAny("/any").Timeout(200 * time.Millisecond)
+				server.On("/any").Timeout(200 * time.Millisecond)
 			},
 			check: func(serverURL string) (*http.Response, error) {
 				ctx, cancel := context.WithTimeout(context.Background(), 1*time.Millisecond)
@@ -166,6 +166,65 @@ func TestSocker(t *testing.T) {
 				return http.DefaultClient.Do(req)
 			},
 			expectedError: context.DeadlineExceeded,
+		},
+		{
+			name: "on get wildcard - get - response status ok",
+			setup: func(server *MockServer) {
+				server.OnMethod(http.MethodGet, "/wild/*").RespondStatus(http.StatusOK)
+			},
+			check: func(serverURL string) (*http.Response, error) {
+				return http.Get(serverURL + "/wild/anything")
+			},
+			expectedResponse: &http.Response{
+				StatusCode: http.StatusOK,
+			},
+		},
+		{
+			name: "on get wildcard multiple choice - get most specific - response status ok",
+			setup: func(server *MockServer) {
+				server.OnMethod(http.MethodGet, "/wild/*").RespondStatus(http.StatusMultipleChoices)
+				server.OnMethod(http.MethodGet, "/wild/anything").RespondStatus(http.StatusOK)
+			},
+			check: func(serverURL string) (*http.Response, error) {
+				return http.Get(serverURL + "/wild/anything")
+			},
+			expectedResponse: &http.Response{
+				StatusCode: http.StatusOK,
+			},
+		},
+		{
+			name: "on multiple choice - get - respond with most specific",
+			setup: func(server *MockServer) {
+				server.On("/multiple").RespondStatus(http.StatusOK)
+				server.OnMethod(http.MethodGet, "/multiple").RespondStatus(http.StatusOK)
+				server.OnRequest(&http.Request{
+					Method: http.MethodGet,
+					URL:    &url.URL{Path: "/multiple", RawQuery: "foo=bar"},
+				}).RespondStatus(http.StatusAccepted)
+			},
+			check: func(serverURL string) (*http.Response, error) {
+				return http.Get(serverURL + "/multiple?foo=bar")
+			},
+			expectedResponse: &http.Response{
+				StatusCode: http.StatusAccepted,
+			},
+		},
+		{
+			name: "on multiple choice - get - respond with least specific",
+			setup: func(server *MockServer) {
+				server.On("/multiple").RespondStatus(http.StatusAccepted)
+				server.OnMethod(http.MethodGet, "/multiple").RespondStatus(http.StatusOK)
+				server.OnRequest(&http.Request{
+					Method: http.MethodGet,
+					URL:    &url.URL{Path: "/multiple", RawQuery: "foo=bar"},
+				}).RespondStatus(http.StatusOK)
+			},
+			check: func(serverURL string) (*http.Response, error) {
+				return http.Post(serverURL+"/multiple", "application/json", nil)
+			},
+			expectedResponse: &http.Response{
+				StatusCode: http.StatusAccepted,
+			},
 		},
 	}
 

@@ -25,20 +25,20 @@ You can be as broad or specific as you want with the path matching. Socker will 
 
 This will match to any request to `/something`
 ```go
-server.OnAny("/something").RespondStatus(http.StatusOK)
+server.On("/something").RespondStatus(http.StatusOK)
 ```
 
-This will match to GET requests to an endpoint that starts with `/something`
+This will match to GET requests to `/something`
 ```go
-server.On(http.MethodGet, "/something").RespondStatus(http.StatusOK)
+server.OnMethod(http.MethodGet, "/something").RespondStatus(http.StatusOK)
 ```
 
-This will match any request with same method and path, but will return bad request if query parameters and headers are missing
+This will match strictly the request with same method, path, query and present headers. anything else will be ignored and passed on to be consumed by another setting.
 ```go
 server.OnRequest(&http.Request{
     Method: http.MethodPost,
     URL: &url.URL{
-        Path: "/something",
+        Path: "/something", // wildcards are treated as literals here
         RawQuery: "param=value",
     },
     Header: http.Header{
@@ -46,4 +46,19 @@ server.OnRequest(&http.Request{
     },
 }).RespondStatus(http.StatusOK)
 ```
-> **Note**: Calling `On()`, `OnAny()`, `OnRequest()` with same method and path will override any previously set configurations.
+
+You can use wildcards to match any path that starts with a specific string.
+This will match to any request to an endpoint that starts with `/something`
+```go
+server.On("/something/*").RespondStatus(http.StatusOK)
+```
+###
+> **Note**: Multiple calls of `On()`, `OnMethod()` or `OnRequest()` with same method and path will override existing settings created by the same methods.
+> ```go
+> server.On("/something").RespondStatus(http.StatusOK)
+> server.On("/something").RespondStatus(http.StatusNotFound) // this will override the previous setting
+> server.OnMethod(http.MethodGet, "/something").RespondStatus(http.StatusOK) // this will not
+> server.OnMethod(http.MethodGet, "/something").RespondStatus(http.StatusNotFound) // this will!
+> server.OnRequest(&http.Request{Method: http.MethodPost, URL: &url.URL{Path: "/something"}}).RespondStatus(http.StatusOK) // this will not
+> ...
+>```
