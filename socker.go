@@ -91,23 +91,23 @@ func (m *MockServer) Stop() {
 	m.Server.Close()
 }
 
-type onSetting struct {
+type mockSetting struct {
 	On      string    `json:"on"`
 	Path    string    `json:"path"`
 	Request Requester `json:"request"`
 	Handler Responder `json:"handler"`
 }
 
-func (m *MockServer) LoadFromFile(path string) error {
+func (m *MockServer) LoadSettings(filePath string) error {
 	// Open the JSON file
-	file, err := os.Open(path)
+	file, err := os.Open(filePath)
 	if err != nil {
 		return err
 	}
 	defer file.Close()
 
 	// Decode JSON from the file
-	var data []onSetting
+	var data []mockSetting
 	err = json.NewDecoder(file).Decode(&data)
 	if err != nil {
 		return err
@@ -117,16 +117,16 @@ func (m *MockServer) LoadFromFile(path string) error {
 		switch setting.On {
 		case "any", "ANY":
 			m.On(setting.Path).Respond(setting.Handler)
-		case http.MethodGet, http.MethodPost, http.MethodPut, http.MethodDelete, http.MethodPatch, http.MethodOptions, http.MethodHead, http.MethodConnect, http.MethodTrace:
+		case "method", "METHOD":
 			m.OnMethod(setting.On, setting.Path).Respond(setting.Handler)
 		case "request", "REQUEST":
-			req, err := setting.Request.ToRequest(m)
+			req, err := setting.Request.ToHTTPRequest()
 			if err != nil {
 				return err
 			}
 			m.OnRequest(req).Respond(setting.Handler)
 		default:
-			return fmt.Errorf("unsupported method: %s", setting.On)
+			return fmt.Errorf("unsupported condition: %s", setting.On)
 		}
 	}
 
