@@ -14,22 +14,14 @@ type Requester struct {
 	Body     string      `json:"body"`
 }
 
-func (r *Requester) parseBody(contentType string) (io.ReadCloser, error) {
-	switch contentType {
-	case "application/json":
-		return io.NopCloser(strings.NewReader(r.Body)), nil
-	default:
-		return nil, nil
-	}
-}
-
 func (r *Requester) ToHTTPRequest() (*http.Request, error) {
-	parsedBody, err := r.parseBody(r.Headers.Get("Content-Type"))
-	if err != nil {
-		return nil, err
+	var body io.ReadCloser
+	switch r.Headers.Get("Content-Type") {
+	case "application/json":
+		body = io.NopCloser(strings.NewReader(r.Body))
 	}
 
-	req, err := http.NewRequest(r.Method, r.Path, parsedBody)
+	req, err := http.NewRequest(r.Method, r.Path, body)
 	if err != nil {
 		return nil, err
 	}
