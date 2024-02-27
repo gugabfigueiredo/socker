@@ -72,7 +72,7 @@ func (m *MockServer) OnMethod(method, path string) *MockHandler {
 // If the incoming request does not match the given request, it returns a 400 Bad Request.
 func (m *MockServer) OnRequest(req *http.Request) *MockHandler {
 	h := m.on(makeHandlerKey("REQUEST", req.Method, req.URL.Path))
-	h.req = req
+	h.requester = req
 	return h
 }
 

@@ -8,53 +8,71 @@ import (
 	"time"
 )
 
+type HandlerResponse struct {
+	ContentType string      `json:"content_type"`
+	Status      int         `json:"status"`
+	Header      http.Header `json:"header"`
+	Body        any         `json:"body"`
+}
+
+type HandlerError struct {
+	Message string `json:"message"`
+	Status  int    `json:"status"`
+}
+
+type Responder struct {
+	Response    *HandlerResponse `json:"response"`
+	Error       *HandlerError    `json:"error"`
+	HandlerFunc http.HandlerFunc
+}
+
 type MockHandler struct {
-	req *http.Request
-	res Responder
+	requester *http.Request
+	responder Responder
 }
 
 func (m *MockHandler) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 	switch {
-	case m.res.Err != nil:
-		http.Error(w, m.res.Err.Message, m.res.Err.Status)
+	case m.responder.Error != nil:
+		http.Error(w, m.responder.Error.Message, m.responder.Error.Status)
 		return
-	case m.res.Res != nil:
-		if m.res.Res.Header != nil {
-			for key, values := range m.res.Res.Header {
+	case m.responder.Response != nil:
+		if m.responder.Response.Header != nil {
+			for key, values := range m.responder.Response.Header {
 				w.Header().Set(key, values[0])
 			}
 		}
 
-		if m.res.Res.ContentType != "" {
-			w.Header().Set("Content-Type", m.res.Res.ContentType)
+		if m.responder.Response.ContentType != "" {
+			w.Header().Set("Content-Type", m.responder.Response.ContentType)
 		}
-		w.WriteHeader(m.res.Res.Status)
-		if m.res.Res.Body != nil {
-			switch m.res.Res.ContentType {
+		w.WriteHeader(m.responder.Response.Status)
+		if m.responder.Response.Body != nil {
+			switch m.responder.Response.ContentType {
 			case "application/json":
-				if err := json.NewEncoder(w).Encode(m.res.Res.Body); err != nil {
+				if err := json.NewEncoder(w).Encode(m.responder.Response.Body); err != nil {
 					http.Error(w, err.Error(), http.StatusInternalServerError)
 				}
 			default:
-				if _, err := w.Write(m.res.Res.Body.([]byte)); err != nil {
+				if _, err := w.Write(m.responder.Response.Body.([]byte)); err != nil {
 					http.Error(w, err.Error(), http.StatusInternalServerError)
 				}
 			}
 		}
 		return
-	case m.res.Func != nil:
-		m.res.Func(w, req)
+	case m.responder.HandlerFunc != nil:
+		m.responder.HandlerFunc(w, req)
 		return
 	}
 }
 
 func (m *MockHandler) Respond(r Responder) {
-	m.res = r
+	m.responder = r
 }
 
 func (m *MockHandler) RespondError(code int, message string) {
 	m.Respond(Responder{
-		Err: &HandlerError{
+		Error: &HandlerError{
 			Status:  code,
 			Message: message,
 		},
@@ -63,7 +81,7 @@ func (m *MockHandler) RespondError(code int, message string) {
 
 func (m *MockHandler) RespondJSON(status int, body any) {
 	m.Respond(Responder{
-		Res: &HandlerResponse{
+		Response: &HandlerResponse{
 			ContentType: "application/json",
 			Status:      status,
 			Body:        body,
@@ -73,7 +91,7 @@ func (m *MockHandler) RespondJSON(status int, body any) {
 
 func (m *MockHandler) RespondStatus(status int) {
 	m.Respond(Responder{
-		Res: &HandlerResponse{
+		Response: &HandlerResponse{
 			Status: status,
 		},
 	})
@@ -81,7 +99,7 @@ func (m *MockHandler) RespondStatus(status int) {
 
 func (m *MockHandler) RespondWith(handlerFunc http.HandlerFunc) {
 	m.Respond(Responder{
-		Func: handlerFunc,
+		HandlerFunc: handlerFunc,
 	})
 }
 
@@ -93,13 +111,13 @@ func (m *MockHandler) Timeout(delay time.Duration) {
 }
 
 func (m *MockHandler) validateRequest(incoming *http.Request) bool {
-	if m.req == nil {
+	if m.requester == nil {
 		return true
 	}
 
 	// check if necessary query parameters are present
 	incomingQuery := incoming.URL.Query()
-	for key, values := range m.req.URL.Query() {
+	for key, values := range m.requester.URL.Query() {
 		incomingValues := incomingQuery[key]
 
 		if len(values) != len(incomingValues) {
@@ -114,7 +132,7 @@ func (m *MockHandler) validateRequest(incoming *http.Request) bool {
 	}
 
 	// check if necessary headers are present
-	for key, values := range m.req.Header {
+	for key, values := range m.requester.Header {
 		incomingValues := incoming.Header[key]
 
 		if len(values) != len(incomingValues) {
@@ -129,12 +147,12 @@ func (m *MockHandler) validateRequest(incoming *http.Request) bool {
 
 	// check if expected Body is present
 	switch {
-	case m.req.Body == nil:
+	case m.requester.Body == nil:
 		return true
 	case incoming.Body == nil:
 		return false
 	default:
-		body, err := io.ReadAll(m.req.Body)
+		body, err := io.ReadAll(m.requester.Body)
 		if err != nil {
 			return false
 		}

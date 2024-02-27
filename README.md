@@ -66,9 +66,50 @@ server.OnRequest(&http.Request{
 > **Note**: Multiple calls of `On()`, `OnMethod()` or `OnRequest()` with same method and path will override existing settings created by the same methods.
 > ```go
 > server.On("/something").RespondStatus(http.StatusOK)
-> server.On("/something").RespondStatus(http.StatusNotFound) // this will override the previous setting
-> server.OnMethod(http.MethodGet, "/something").RespondStatus(http.StatusOK) // this will not
-> server.OnMethod(http.MethodGet, "/something").RespondStatus(http.StatusNotFound) // this will!
-> server.OnRequest(&http.Request{Method: http.MethodPost, URL: &url.URL{Path: "/something"}}).RespondStatus(http.StatusOK) // this will not
+> server.On("/something").RespondStatus(http.StatusAccepted) // this will override the previous On("/something")
+> server.OnMethod(http.MethodGet, "/something").RespondStatus(http.StatusOK)
+> server.OnMethod(http.MethodGet, "/something").RespondStatus(http.StatusAccepted) // this will override the previous OnMethod(http.MethodGet, "/something")
+> server.OnRequest(&http.Request{Method: http.MethodPost, URL: &url.URL{Path: "/something"}}).RespondStatus(http.StatusOK)
+> server.OnRequest(&http.Request{Method: http.MethodPost, URL: &url.URL{Path: "/something"}}).RespondStatus(http.StatusAccepted) // this will override the previous OnRequest
 > ...
 >```
+
+### Request Matching
+socker will try to match any incoming request to the most specific setting in this order:
+
+`OnRequest` + wildcards > `OnMethod` + wildcards > `On` + wildcards
+
+The first match will be used to respond to the request.
+
+This means that given the following setup:
+```go
+server.On("/something/*").RespondStatus(http.StatusOK)
+server.On("/*").RespondStatus(http.StatusAccepted)
+```
+A request to `/something/else` will respond with `http.StatusOK` and a request to `/anything` will respond with `http.StatusAccepted`
+
+### Responding
+Use `Respond` with a `Responder` to respond with a custom response
+```go
+server.On("/something").Respond(socker.Responder{
+    Status: http.StatusOK,
+    Headers: http.Header{
+        "X-Header": []string{"value"},
+        "Content-Type": []string{"text/plain"},
+    },
+    Body: "Hello, World!",
+})
+```
+
+You can also provide your own `http.HandlerFunc` to respond to the request
+```go
+server.On("/something").RespondWith(func(w http.ResponseWriter, r *http.Request) {
+    w.WriteHeader(http.StatusOK)
+    w.Write([]byte("Hello, World!"))
+})
+```
+But there are some helper methods to respond with
+```go
+server.On("/something").RespondStatus(http.StatusOK)
+server.On("/something").RespondJSON(map[string]interface{}{"key": "value"})
+```
