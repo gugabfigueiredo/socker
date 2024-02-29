@@ -241,6 +241,104 @@ func TestSocker(t *testing.T) {
 			}
 			if tc.expectedResponse != nil {
 				assert.Equal(t, tc.expectedResponse.StatusCode, res.StatusCode)
+			} else {
+				assert.Nil(t, res)
+			}
+		})
+	}
+}
+
+func TestSocker_Router(t *testing.T) {
+
+	tt := []struct {
+		name             string
+		setup            func(server *MockServer)
+		requestPath      string
+		expectedRoutes   []string
+		expectedResponse *http.Response
+		expectedError    error
+	}{
+		{
+			name: "on shallow route - get - response status ok",
+			setup: func(server *MockServer) {
+				server.OnRoute("/shallow", func(m *MockServer) {
+					m.On("/").RespondStatus(http.StatusOK)
+				})
+			},
+			requestPath:    "/shallow",
+			expectedRoutes: []string{"/shallow"},
+			expectedResponse: &http.Response{
+				StatusCode: http.StatusOK,
+			},
+		},
+		{
+			name: "on deep route - get - response status ok",
+			setup: func(server *MockServer) {
+				server.OnRoute("/deep", func(m *MockServer) {
+					m.OnRoute("/nested", func(m *MockServer) {
+						m.On("/path").RespondStatus(http.StatusOK)
+					})
+				})
+			},
+			requestPath:    "/deep/nested/path",
+			expectedRoutes: []string{"/deep/nested/path"},
+			expectedResponse: &http.Response{
+				StatusCode: http.StatusOK,
+			},
+		},
+		{
+			name: "on multiple routes - get - response status ok",
+			setup: func(server *MockServer) {
+				server.OnRoute("/multiple", func(m *MockServer) {
+					m.On("/one").RespondStatus(http.StatusOK)
+					m.On("/two").RespondStatus(http.StatusOK)
+				})
+			},
+			requestPath:    "/multiple/two",
+			expectedRoutes: []string{"/multiple/two", "/multiple/one"},
+			expectedResponse: &http.Response{
+				StatusCode: http.StatusOK,
+			},
+		},
+		{
+			name: "on mixed routes - get - response status ok",
+			setup: func(server *MockServer) {
+				server.On("/mixed").RespondStatus(http.StatusOK)
+				server.OnRoute("/mixed", func(m *MockServer) {
+					m.On("/one").RespondStatus(http.StatusOK)
+					m.OnRoute("/two", func(m *MockServer) {
+						m.On("/three").RespondStatus(http.StatusOK)
+					})
+				})
+			},
+			requestPath:    "/mixed/two/three",
+			expectedRoutes: []string{"/mixed/two/three", "/mixed/one", "/mixed"},
+			expectedResponse: &http.Response{
+				StatusCode: http.StatusOK,
+			},
+		},
+	}
+
+	for _, tc := range tt {
+		t.Run(tc.name, func(t *testing.T) {
+			socker := NewServer()
+			defer socker.Close()
+			tc.setup(socker)
+			keys := make([]string, 0, len(socker.handlers))
+			for k := range socker.handlers {
+				keys = append(keys, k)
+			}
+			assert.ElementsMatch(t, tc.expectedRoutes, keys)
+			resp, err := http.Get(socker.URL + tc.requestPath)
+			if tc.expectedError != nil {
+				assert.EqualError(t, err, tc.expectedError.Error())
+			} else {
+				assert.NoError(t, err)
+			}
+			if tc.expectedResponse != nil {
+				assert.Equal(t, tc.expectedResponse.StatusCode, resp.StatusCode)
+			} else {
+				assert.Nil(t, resp)
 			}
 		})
 	}
