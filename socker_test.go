@@ -248,6 +248,16 @@ func TestSocker(t *testing.T) {
 	}
 }
 
+func TestSockerOnPort(t *testing.T) {
+	socker := NewServerOnPort("8080")
+	defer socker.Close()
+	socker.On("/foo").RespondStatus(http.StatusOK)
+
+	res, err := http.Get("http://127.0.0.1:8080" + "/foo")
+	assert.NoError(t, err)
+	assert.Equal(t, http.StatusOK, res.StatusCode)
+}
+
 func TestSocker_Router(t *testing.T) {
 
 	tt := []struct {

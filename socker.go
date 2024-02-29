@@ -3,6 +3,7 @@ package socker
 import (
 	"encoding/json"
 	"fmt"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -22,6 +23,22 @@ func NewServer() *MockServer {
 		handlers: make(map[string]*MockHandler),
 	}
 	m.Server = httptest.NewServer(m)
+	return m
+}
+
+func NewServerOnPort(port string) *MockServer {
+	l, err := net.Listen("tcp", fmt.Sprintf("127.0.0.1:%s", port))
+	if err != nil {
+		panic(err)
+	}
+
+	m := &MockServer{
+		handlers: make(map[string]*MockHandler),
+	}
+
+	m.Server = httptest.NewUnstartedServer(m)
+	m.Server.Listener = l
+	m.Server.Start()
 	return m
 }
 
