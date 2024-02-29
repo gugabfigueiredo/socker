@@ -30,36 +30,6 @@ func (m *MockServer) on(key string) *MockHandler {
 	return m.handlers[key]
 }
 
-func makeHandlerKey(parts ...string) string {
-	return strings.TrimSpace(path.Join(parts...))
-}
-
-func makeHandlerKeys(method, path string) []string {
-	key := makeHandlerKey(method, path)
-	parts := strings.Split(key, "/")
-	keys := make([]string, len(parts))
-
-	for i := range parts {
-		pattern := strings.Join(parts[:i+1], "/")
-		if i < len(parts)-1 {
-			pattern += "/*"
-		}
-		keys[i] = pattern
-	}
-
-	for _, k := range keys[:len(parts)] {
-		keys = append(keys, "REQUEST/"+k)
-	}
-
-	sort.Sort(sort.Reverse(sort.StringSlice(keys)))
-
-	for i := 0; i < len(parts); i++ {
-		keys = append(keys, strings.TrimPrefix(keys[i], "REQUEST/"+parts[0]))
-	}
-
-	return keys
-}
-
 func (m *MockServer) On(path string) *MockHandler {
 	return m.on(makeHandlerKey(path))
 }
@@ -72,6 +42,17 @@ func (m *MockServer) OnRequest(req *http.Request) *MockHandler {
 	h := m.on(makeHandlerKey("REQUEST", req.Method, req.URL.Path))
 	h.requester = req
 	return h
+}
+
+func (m *MockServer) OnRoute(path string, router func(m *MockServer)) {
+	sub := &MockServer{
+		handlers: make(map[string]*MockHandler),
+	}
+	router(sub)
+	for key, handler := range sub.handlers {
+		routeKey := routeHandlerKey(path, key)
+		m.handlers[routeKey] = handler
+	}
 }
 
 func (m *MockServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -129,4 +110,51 @@ func (m *MockServer) LoadSettings(filePath string) error {
 	}
 
 	return nil
+}
+
+func makeHandlerKey(parts ...string) string {
+	return strings.TrimSpace(path.Join(parts...))
+}
+
+func makeHandlerKeys(method, path string) []string {
+	key := makeHandlerKey(method, path)
+	parts := strings.Split(key, "/")
+	keys := make([]string, len(parts))
+
+	for i := range parts {
+		pattern := strings.Join(parts[:i+1], "/")
+		if i < len(parts)-1 {
+			pattern += "/*"
+		}
+		keys[i] = pattern
+	}
+
+	for _, k := range keys[:len(parts)] {
+		keys = append(keys, "REQUEST/"+k)
+	}
+
+	sort.Sort(sort.Reverse(sort.StringSlice(keys)))
+
+	for i := 0; i < len(parts); i++ {
+		keys = append(keys, strings.TrimPrefix(keys[i], "REQUEST/"+parts[0]))
+	}
+
+	return keys
+}
+
+func routeHandlerKey(route string, key string) string {
+	parts := strings.Split(key, "/")
+
+	head := parts[0]
+
+	switch head {
+	case "REQUEST":
+		neck, tail := parts[1], parts[2:]
+		return path.Join(append([]string{head, neck, route}, tail...)...)
+	case http.MethodGet, http.MethodPost, http.MethodPut, http.MethodPatch, http.MethodDelete, http.MethodOptions, http.MethodHead, http.MethodConnect, http.MethodTrace:
+		tail := parts[1:]
+		return path.Join(append([]string{head, route}, tail...)...)
+	default:
+		return path.Join(route, key)
+	}
 }
