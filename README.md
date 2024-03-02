@@ -3,6 +3,11 @@ a stupid simple golang mock server
 
 ## Usage
 
+### Install
+```bash
+go get github.com/gugabfigueiredo/socker
+```
+
 1. Create a new server
 ```go
 server := socker.NewServer()
